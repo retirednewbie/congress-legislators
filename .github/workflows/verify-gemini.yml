@@ -21,31 +21,50 @@ jobs:
         run: |
           python - <<'EOF'
           import os
+          import random
           import time
           from google import genai
           from google.genai import errors
 
-          MAX_ATTEMPTS = 5
+          PRIMARY_MODEL = "gemini-3.8-flash"
+          FALLBACK_MODEL = "gemini-3.5-flash-lite"
+          RETRYABLE_CODES = {429, 503}
+          BACKOFF_DELAYS = [5, 10, 20]  # seconds between rounds, plus jitter
 
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-          for attempt in range(1, MAX_ATTEMPTS + 1):
-              try:
-                  response = client.models.generate_content(
-                      model="gemini-2.0-flash",
-                      contents="Respond with the exact words: Gemini connection verified successfully."
-                  )
+          def call(model):
+              return client.models.generate_content(
+                  model=model,
+                  contents="Respond with the exact words: Gemini connection verified successfully."
+              )
+
+          # Each round tries the primary model, then the fallback if the primary is
+          # overloaded or rate-limited. Any other error fails immediately.
+          response = None
+          for round_num in range(len(BACKOFF_DELAYS) + 1):
+              for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+                  try:
+                      response = call(model)
+                      used_model = model
+                      break
+                  except errors.APIError as e:
+                      if e.code not in RETRYABLE_CODES:
+                          raise
+                      last_error = e
+                      print(f"Round {round_num + 1}: {model} returned {e.code}")
+              if response is not None:
                   break
-              except errors.APIError as e:
-                  # Retry only on overload/rate-limit errors; fail fast on anything else
-                  retryable = e.code == 429 or e.code >= 500
-                  if not retryable or attempt == MAX_ATTEMPTS:
-                      raise
-                  delay = min(2 ** attempt, 5)  # 2s, 4s, 5s, 5s
-                  print(f"Attempt {attempt} failed with {e.code}; retrying in {delay}s...")
+              if round_num < len(BACKOFF_DELAYS):
+                  delay = BACKOFF_DELAYS[round_num] + random.uniform(0, 2)
+                  print(f"Both models busy; retrying in {delay:.1f}s...")
                   time.sleep(delay)
 
-          print("\n--- GEMINI RESPONSE ---")
+          if response is None:
+              raise last_error
+
+          print(f"\nModel used: {used_model}")
+          print("--- GEMINI RESPONSE ---")
           print(response.text.strip())
           print("-----------------------\n")
           EOF

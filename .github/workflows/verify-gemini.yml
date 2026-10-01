@@ -1,0 +1,34 @@
+name: Verify Gemini Access
+
+on:
+  workflow_dispatch: # Allows manual trigger from the GitHub UI
+
+jobs:
+  test-gemini:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Google GenAI SDK
+        run: pip install google-genai
+
+      - name: Test Gemini API Connection
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -c '
+          import os
+          from google import genai
+
+          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+          response = client.models.generate_content(
+              model="gemini-2.5-flash",
+              contents="Respond with the exact words: Gemini connection verified successfully."
+          )
+          print("\n--- GEMINI RESPONSE ---")
+          print(response.text.strip())
+          print("-----------------------\n")
+          '

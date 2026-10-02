@@ -1,0 +1,33 @@
+name: Verify OpenAI Access
+
+on:
+  workflow_dispatch: # Allows manual trigger from the GitHub UI
+
+jobs:
+  test-openai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install OpenAI SDK
+        run: pip install openai
+
+      - name: Test OpenAI API Connection
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python - <<'EOF'
+          from openai import OpenAI
+
+          # Listing models only needs a valid key, so this doesn't depend on any model name
+          client = OpenAI()
+          models = sorted(m.id for m in client.models.list())
+
+          print("\n--- OPENAI RESPONSE ---")
+          print(f"OpenAI connection verified successfully. {len(models)} models available.")
+          print("Sample:", ", ".join([m for m in models if m.startswith("gpt")][:5]))
+          print("-----------------------\n")
+          EOF
